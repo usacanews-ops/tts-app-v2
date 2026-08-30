@@ -1,11 +1,11 @@
 package com.app.empty_activity_kotlin
+
 import android.os.Bundle
 import android.os.Environment
 import android.speech.tts.TextToSpeech
-import android.widget.Button
-import android.widget.EditText
-import android.widget.SeekBar
-import android.widget.Toast
+import android.speech.tts.Voice
+import android.view.View
+import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import java.io.File
 import java.util.Locale
@@ -18,6 +18,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var btnDownload: Button
     private lateinit var seekPitch: SeekBar
     private lateinit var seekSpeed: SeekBar
+    private lateinit var spinnerLanguage: Spinner
+    private lateinit var spinnerVoice: Spinner
+
+    private var availableLocales = mutableListOf<Locale>()
+    private var availableVoices = mutableListOf<Voice>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,10 +33,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         btnDownload = findViewById(R.id.btnDownload)
         seekPitch = findViewById(R.id.seekPitch)
         seekSpeed = findViewById(R.id.seekSpeed)
+        spinnerLanguage = findViewById(R.id.spinnerLanguage)
+        spinnerVoice = findViewById(R.id.spinnerVoice)
 
-        tts = TextToSpeech(this, this)
         btnGenerate.isEnabled = false
         btnDownload.isEnabled = false
+
+        tts = TextToSpeech(this, this)
 
         btnGenerate.setOnClickListener {
             val text = editText.text.toString()
@@ -47,16 +55,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val text = editText.text.toString()
             if (text.isNotEmpty()) {
                 applyTtsSettings()
-                
-                // Save to the public Downloads folder
                 val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val fileName = "TTS_Audio_${System.currentTimeMillis()}.wav"
                 val audioFile = File(downloadsDir, fileName)
 
                 val result = tts.synthesizeToFile(text, null, audioFile, "tts_download")
-                
                 if (result == TextToSpeech.SUCCESS) {
-                    Toast.makeText(this, "Audio saved to Downloads: $fileName", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Saved to Downloads: $fileName", Toast.LENGTH_LONG).show()
                 } else {
                     Toast.makeText(this, "Failed to save audio", Toast.LENGTH_SHORT).show()
                 }
@@ -66,29 +71,79 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            setupLanguageSpinner()
+            btnGenerate.isEnabled = true
+            btnDownload.isEnabled = true
+        } else {
+            Toast.makeText(this, "TTS Initialization failed", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun setupLanguageSpinner() {
+        try {
+            val locales = tts.availableLanguages ?: emptySet()
+            availableLocales.clear()
+            availableLocales.addAll(locales.sortedBy { it.displayLanguage })
+
+            val languageNames = availableLocales.map { "${it.displayLanguage} (${it.country})" }
+            val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, languageNames)
+            spinnerLanguage.adapter = adapter
+
+            spinnerLanguage.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    val selectedLocale = availableLocales[position]
+                    tts.language = selectedLocale
+                    updateVoicesForLanguage(selectedLocale)
+                }
+                override fun onNothingSelected(parent: AdapterView<*>?) {}
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Could not load languages", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updateVoicesForLanguage(locale: Locale) {
+        try {
+            val allVoices = tts.voices ?: emptySet()
+            availableVoices.clear()
+            
+            // Find all voices that match the currently selected language
+            availableVoices.addAll(allVoices.filter { it.locale.language == locale.language })
+
+            val voiceNames = if (availableVoices.isEmpty()) {
+                listOf("Default Voice")
+            } else {
+                // Formatting the technical voice name to be slightly more readable
+                availableVoices.map { it.name.substringAfterLast("-").replace("_", " ") }
+            }
+
+            val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, voiceNames)
+            spinnerVoice.adapter = adapter
+
+            spinnerVoice.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    if (availableVoices.isNotEmpty()) {
+                        tts.voice = availableVoices[position]
+                    }
+                }
+                override fun onNothingSelected(parent: AdapterView<*>?) {}
+            }
+        } catch (e: Exception) {
+            // Some older Android devices crash when calling tts.voices
+        }
+    }
+
     private fun applyTtsSettings() {
-        // Convert 0-100 SeekBar progress to 0.1f - 2.0f float for TTS engine
-        // 50 progress = 1.0f (Normal)
         var pitch = seekPitch.progress / 50f
-        if (pitch < 0.1f) pitch = 0.1f // Prevent 0 pitch which causes errors
+        if (pitch < 0.1f) pitch = 0.1f
 
         var speed = seekSpeed.progress / 50f
         if (speed < 0.1f) speed = 0.1f
 
         tts.setPitch(pitch)
         tts.setSpeechRate(speed)
-    }
-
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            val result = tts.setLanguage(Locale.US)
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Toast.makeText(this, "Language not supported", Toast.LENGTH_SHORT).show()
-            } else {
-                btnGenerate.isEnabled = true
-                btnDownload.isEnabled = true
-            }
-        }
     }
 
     override fun onDestroy() {
