@@ -3,52 +3,113 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="24dp"
-    android:gravity="center_vertical">
+    android:padding="16dp">
 
+    <!-- Full screen textbox stretching to fill available space -->
     <EditText
         android:id="@+id/editText"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:hint="Enter text to speak..."
         android:inputType="textMultiLine"
-        android:minLines="4"
         android:gravity="top|start"
         android:background="#1A000000"
-        android:padding="12dp" />
+        android:padding="12dp"
+        android:layout_marginBottom="16dp" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Pitch"
-        android:textStyle="bold"/>
-
-    <SeekBar
-        android:id="@+id/seekPitch"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:max="100"
-        android:progress="50" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Speed"
-        android:textStyle="bold"/>
-
-    <SeekBar
-        android:id="@+id/seekSpeed"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:max="100"
-        android:progress="50" />
-
+    <!-- Inline Sliders (Pitch and Speed side-by-side) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginEnd="8dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pitch"
+                android:textStyle="bold" />
+            <SeekBar
+                android:id="@+id/seekPitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="100"
+                android:progress="50" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="8dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Speed"
+                android:textStyle="bold" />
+            <SeekBar
+                android:id="@+id/seekSpeed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="100"
+                android:progress="50" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Inline Dropdowns (Language and Speaker side-by-side) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginEnd="8dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Language"
+                android:textStyle="bold" />
+            <Spinner
+                android:id="@+id/spinnerLanguage"
+                android:layout_width="match_parent"
+                android:layout_height="48dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="8dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Speaker"
+                android:textStyle="bold" />
+            <Spinner
+                android:id="@+id/spinnerVoice"
+                android:layout_width="match_parent"
+                android:layout_height="48dp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Bottom Buttons -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
         android:orientation="horizontal">
 
         <Button
@@ -58,7 +119,7 @@
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
             android:padding="16dp"
-            android:text="Speak"/>
+            android:text="Speak" />
 
         <Button
             android:id="@+id/btnDownload"
@@ -67,7 +128,6 @@
             android:layout_weight="1"
             android:layout_marginStart="8dp"
             android:padding="16dp"
-            android:text="Download"/>
-
+            android:text="Download" />
     </LinearLayout>
 </LinearLayout>
