@@ -120,12 +120,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             } else {
                 availableVoices.mapIndexed { index, voice ->
                     
-                    val nameLower = voice.name.lowercase()
+                    val nameLower = voice.name.toLowerCase(Locale.US)
                     val features = voice.features ?: emptySet()
                     
                     // Dig through the hidden Google TTS parameters to find gender tags
-                    val isFemale = nameLower.contains("female") || features.any { it.lowercase().contains("female") }
-                    val isMale = !isFemale && (nameLower.contains("male") || features.any { it.lowercase().contains("male") })
+                   val isFemale = nameLower.contains("female") || features.any { it.toLowerCase(Locale.US).contains("female") }
+                    val isMale = !isFemale && (nameLower.contains("male") || features.any { it.toLowerCase(Locale.US).contains("male") })
                     
                     val gender = when {
                         isFemale -> "(F)"
