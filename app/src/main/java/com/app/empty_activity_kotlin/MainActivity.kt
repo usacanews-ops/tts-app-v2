@@ -109,14 +109,35 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val allVoices = tts.voices ?: emptySet()
             availableVoices.clear()
             
-            // Find all voices that match the currently selected language
+            // 1. Filter voices for the chosen language
             availableVoices.addAll(allVoices.filter { it.locale.language == locale.language })
+            
+            // 2. Sort so Local offline voices appear at the top, Network voices at the bottom
+            availableVoices.sortBy { it.isNetworkConnectionRequired }
 
             val voiceNames = if (availableVoices.isEmpty()) {
-                listOf("Default Voice")
+                listOf("Default Speaker")
             } else {
-                // Formatting the technical voice name to be slightly more readable
-                availableVoices.map { it.name.substringAfterLast("-").replace("_", " ") }
+                availableVoices.mapIndexed { index, voice ->
+                    
+                    val nameLower = voice.name.lowercase()
+                    val features = voice.features ?: emptySet()
+                    
+                    // Dig through the hidden Google TTS parameters to find gender tags
+                    val isFemale = nameLower.contains("female") || features.any { it.lowercase().contains("female") }
+                    val isMale = !isFemale && (nameLower.contains("male") || features.any { it.lowercase().contains("male") })
+                    
+                    val gender = when {
+                        isFemale -> "(F)"
+                        isMale -> "(M)"
+                        else -> "" // Leave blank if Google doesn't specify gender for this voice
+                    }
+                    
+                    val type = if (voice.isNetworkConnectionRequired) "Network" else "Local"
+                    
+                    // Creates a clean name like: "Speaker 1 (M) - Local"
+                    "Speaker ${index + 1} $gender - $type".replace("  ", " ").trim()
+                }
             }
 
             val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, voiceNames)
@@ -131,7 +152,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 override fun onNothingSelected(parent: AdapterView<*>?) {}
             }
         } catch (e: Exception) {
-            // Some older Android devices crash when calling tts.voices
+            // Failsafe for older devices
         }
     }
 
