@@ -30,7 +30,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var availableLocales = mutableListOf<Locale>()
     private var availableVoices = mutableListOf<Voice>()
 
-    // Track download progress
+    // Track states and progress
+    private var isSpeaking = false
+    private var isDownloading = false
+    private var isDownloadCancelled = false
     private var expectedDownloads = 0
     private var completedDownloads = 0
     private val pendingFiles = mutableMapOf<String, File>()
@@ -52,7 +55,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         btnGenerate.isEnabled = false
         btnDownload.isEnabled = false
 
-        // Feature 3: Live Character Counter with Red Text Warning
         editText.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -71,22 +73,50 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
 
         btnGenerate.setOnClickListener {
-            val text = editText.text.toString()
-            if (text.isNotEmpty()) {
-                applyTtsSettings()
-                speakInChunks(text)
+            if (isSpeaking) {
+                // STOP LOGIC
+                tts.stop()
+                resetSpeakButton()
             } else {
-                Toast.makeText(this, "Please enter some text", Toast.LENGTH_SHORT).show()
+                // SPEAK LOGIC
+                val text = editText.text.toString()
+                if (text.isNotEmpty()) {
+                    isSpeaking = true
+                    btnGenerate.text = "Stop"
+                    btnGenerate.setTextColor(Color.RED) // Optional visual cue
+                    btnDownload.isEnabled = false // Disable download while speaking
+                    
+                    applyTtsSettings()
+                    speakInChunks(text)
+                } else {
+                    Toast.makeText(this, "Please enter some text", Toast.LENGTH_SHORT).show()
+                }
             }
         }
 
         btnDownload.setOnClickListener {
-            val text = editText.text.toString()
-            if (text.isNotEmpty()) {
-                applyTtsSettings()
-                downloadInChunks(text)
+            if (isDownloading) {
+                // CANCEL LOGIC
+                isDownloadCancelled = true
+                tts.stop()
+                resetDownloadButton()
+                cleanupTempFiles()
+                Toast.makeText(this, "Download Cancelled", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "Please enter some text", Toast.LENGTH_SHORT).show()
+                // DOWNLOAD LOGIC
+                val text = editText.text.toString()
+                if (text.isNotEmpty()) {
+                    isDownloading = true
+                    isDownloadCancelled = false
+                    btnDownload.text = "Cancel"
+                    btnDownload.setTextColor(Color.RED)
+                    btnGenerate.isEnabled = false // Disable speak while downloading
+                    
+                    applyTtsSettings()
+                    downloadInChunks(text)
+                } else {
+                    Toast.makeText(this, "Please enter some text", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -105,31 +135,34 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun setupProgressListener() {
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
-                // Feature 1: Only show progress bar for downloads, not for speaking
                 if (utteranceId?.startsWith("DOWNLOAD") == true) {
                     runOnUiThread { progressBar.visibility = View.VISIBLE }
                 }
             }
 
             override fun onDone(utteranceId: String?) {
-                if (utteranceId?.startsWith("DOWNLOAD") == true) {
-                    // Feature 2 Fix: Safely copy the completed temp file to the public Downloads folder
+                if (utteranceId?.startsWith("SPEAK") == true) {
+                    // Reset Speak button when the final chunk finishes naturally
+                    if (utteranceId.contains("_FINAL")) {
+                        runOnUiThread { resetSpeakButton() }
+                    }
+                } 
+                else if (utteranceId?.startsWith("DOWNLOAD") == true) {
+                    if (isDownloadCancelled) return // Stop processing if cancelled
+
                     val tempFile = pendingFiles[utteranceId]
                     if (tempFile != null && tempFile.exists()) {
                         val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                         val destFile = File(downloadsDir, tempFile.name)
                         
-                        // Copy data and delete the temporary file
                         tempFile.copyTo(destFile, overwrite = true)
                         tempFile.delete()
 
                         completedDownloads++
                         
-                        // Check if all chunks are finished processing
                         if (completedDownloads == expectedDownloads) {
                             runOnUiThread {
-                                progressBar.visibility = View.GONE
-                                btnDownload.isEnabled = true
+                                resetDownloadButton()
                                 Toast.makeText(this@MainActivity, "Saved $completedDownloads audio file(s) to Downloads!", Toast.LENGTH_LONG).show()
                             }
                         }
@@ -139,8 +172,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
             override fun onError(utteranceId: String?) {
                 runOnUiThread {
-                    progressBar.visibility = View.GONE
-                    btnDownload.isEnabled = true
+                    if (utteranceId?.startsWith("SPEAK") == true) resetSpeakButton()
+                    if (utteranceId?.startsWith("DOWNLOAD") == true) resetDownloadButton()
                     Toast.makeText(this@MainActivity, "Error processing audio", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -152,7 +185,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val chunks = text.chunked(maxLength)
         
         for (i in chunks.indices) {
-            val utteranceId = "SPEAK_$i"
+            val utteranceId = if (i == chunks.size - 1) "SPEAK_FINAL" else "SPEAK_$i"
             val queueMode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
             tts.speak(chunks[i], queueMode, null, utteranceId)
         }
@@ -166,8 +199,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         completedDownloads = 0
         pendingFiles.clear()
         
-        // Disable button while processing
-        btnDownload.isEnabled = false
         val baseName = "TTS_Audio_${System.currentTimeMillis()}"
 
         if (chunks.size > 1) {
@@ -179,12 +210,38 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val fileSuffix = if (chunks.size > 1) "_Part${i + 1}" else ""
             val fileName = "$baseName$fileSuffix.wav"
             
-            // Save to app's safe directory first to avoid Android 11+ permission restrictions
             val tempFile = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName)
             pendingFiles[utteranceId] = tempFile
             
             tts.synthesizeToFile(chunks[i], null, tempFile, utteranceId)
         }
+    }
+
+    // Helper functions to reset UI states safely
+    private fun resetSpeakButton() {
+        isSpeaking = false
+        btnGenerate.text = "Speak"
+        // Reset color to default (usually black or theme color depending on device)
+        btnGenerate.setTextColor(Color.parseColor("#000000")) 
+        btnDownload.isEnabled = true
+    }
+
+    private fun resetDownloadButton() {
+        isDownloading = false
+        progressBar.visibility = View.GONE
+        btnDownload.text = "Download"
+        btnDownload.setTextColor(Color.parseColor("#000000"))
+        btnGenerate.isEnabled = true
+    }
+
+    private fun cleanupTempFiles() {
+        // If cancelled, delete any temporary files that were mid-creation
+        for (file in pendingFiles.values) {
+            if (file.exists()) {
+                file.delete()
+            }
+        }
+        pendingFiles.clear()
     }
 
     private fun setupLanguageSpinner() {
