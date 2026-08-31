@@ -5,20 +5,37 @@
     android:orientation="vertical"
     android:padding="16dp">
 
-    <!-- Full screen textbox stretching to fill available space -->
-    <EditText
-        android:id="@+id/editText"
+    <!-- Textbox and Character Counter -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:hint="Enter text to speak..."
-        android:inputType="textMultiLine"
-        android:gravity="top|start"
-        android:background="#1A000000"
-        android:padding="12dp"
-        android:layout_marginBottom="16dp" />
+        android:orientation="vertical"
+        android:layout_marginBottom="16dp">
 
-    <!-- Inline Sliders (Pitch and Speed side-by-side) -->
+        <EditText
+            android:id="@+id/editText"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:hint="Enter long text to speak..."
+            android:inputType="textMultiLine"
+            android:gravity="top|start"
+            android:background="#1A000000"
+            android:padding="12dp" />
+
+        <TextView
+            android:id="@+id/tvCharCount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="0 characters"
+            android:gravity="end"
+            android:textSize="12sp"
+            android:paddingTop="4dp"
+            android:textColor="#666666" />
+    </LinearLayout>
+
+    <!-- Inline Sliders -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -64,7 +81,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Inline Dropdowns (Language and Speaker side-by-side) -->
+    <!-- Inline Dropdowns -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -105,6 +122,15 @@
                 android:layout_height="48dp" />
         </LinearLayout>
     </LinearLayout>
+
+    <!-- Progress Indicator -->
+    <ProgressBar
+        android:id="@+id/progressBar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:visibility="gone"
+        android:layout_marginBottom="8dp" />
 
     <!-- Bottom Buttons -->
     <LinearLayout
