@@ -1,5 +1,6 @@
 package com.app.empty_activity_kotlin
 
+import android.graphics.Color
 import android.os.Bundle
 import android.os.Environment
 import android.speech.tts.TextToSpeech
@@ -29,6 +30,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var availableLocales = mutableListOf<Locale>()
     private var availableVoices = mutableListOf<Voice>()
 
+    // Track download progress
+    private var expectedDownloads = 0
+    private var completedDownloads = 0
+    private val pendingFiles = mutableMapOf<String, File>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -46,11 +52,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         btnGenerate.isEnabled = false
         btnDownload.isEnabled = false
 
-        // Live Character Counter
+        // Feature 3: Live Character Counter with Red Text Warning
         editText.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                tvCharCount.text = "${s?.length ?: 0} characters"
+                val length = s?.length ?: 0
+                if (length > 4000) {
+                    tvCharCount.setTextColor(Color.RED)
+                    tvCharCount.text = "$length chars (Over 4000 limit: Will save as multiple files)"
+                } else {
+                    tvCharCount.setTextColor(Color.parseColor("#666666"))
+                    tvCharCount.text = "$length characters"
+                }
             }
             override fun afterTextChanged(s: Editable?) {}
         })
@@ -92,16 +105,33 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun setupProgressListener() {
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
-                runOnUiThread { progressBar.visibility = View.VISIBLE }
+                // Feature 1: Only show progress bar for downloads, not for speaking
+                if (utteranceId?.startsWith("DOWNLOAD") == true) {
+                    runOnUiThread { progressBar.visibility = View.VISIBLE }
+                }
             }
 
             override fun onDone(utteranceId: String?) {
-                // Only hide loader and show success message when the FINAL chunk finishes
-                if (utteranceId != null && utteranceId.contains("_FINAL")) {
-                    runOnUiThread {
-                        progressBar.visibility = View.GONE
-                        if (utteranceId.startsWith("DOWNLOAD")) {
-                            Toast.makeText(this@MainActivity, "Audio saved to Downloads!", Toast.LENGTH_LONG).show()
+                if (utteranceId?.startsWith("DOWNLOAD") == true) {
+                    // Feature 2 Fix: Safely copy the completed temp file to the public Downloads folder
+                    val tempFile = pendingFiles[utteranceId]
+                    if (tempFile != null && tempFile.exists()) {
+                        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                        val destFile = File(downloadsDir, tempFile.name)
+                        
+                        // Copy data and delete the temporary file
+                        tempFile.copyTo(destFile, overwrite = true)
+                        tempFile.delete()
+
+                        completedDownloads++
+                        
+                        // Check if all chunks are finished processing
+                        if (completedDownloads == expectedDownloads) {
+                            runOnUiThread {
+                                progressBar.visibility = View.GONE
+                                btnDownload.isEnabled = true
+                                Toast.makeText(this@MainActivity, "Saved $completedDownloads audio file(s) to Downloads!", Toast.LENGTH_LONG).show()
+                            }
                         }
                     }
                 }
@@ -110,6 +140,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             override fun onError(utteranceId: String?) {
                 runOnUiThread {
                     progressBar.visibility = View.GONE
+                    btnDownload.isEnabled = true
                     Toast.makeText(this@MainActivity, "Error processing audio", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -117,12 +148,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun speakInChunks(text: String) {
-        // Safe limit below the 4000 max
         val maxLength = TextToSpeech.getMaxSpeechInputLength() - 100 
         val chunks = text.chunked(maxLength)
         
         for (i in chunks.indices) {
-            val utteranceId = if (i == chunks.size - 1) "SPEAK_FINAL" else "SPEAK_$i"
+            val utteranceId = "SPEAK_$i"
             val queueMode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
             tts.speak(chunks[i], queueMode, null, utteranceId)
         }
@@ -131,19 +161,29 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun downloadInChunks(text: String) {
         val maxLength = TextToSpeech.getMaxSpeechInputLength() - 100
         val chunks = text.chunked(maxLength)
-        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        
+        expectedDownloads = chunks.size
+        completedDownloads = 0
+        pendingFiles.clear()
+        
+        // Disable button while processing
+        btnDownload.isEnabled = false
         val baseName = "TTS_Audio_${System.currentTimeMillis()}"
 
         if (chunks.size > 1) {
-            Toast.makeText(this, "Long text: Saving as ${chunks.size} separate files", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Processing large text... Please wait.", Toast.LENGTH_SHORT).show()
         }
 
         for (i in chunks.indices) {
-            val utteranceId = if (i == chunks.size - 1) "DOWNLOAD_FINAL" else "DOWNLOAD_$i"
+            val utteranceId = "DOWNLOAD_$i"
             val fileSuffix = if (chunks.size > 1) "_Part${i + 1}" else ""
-            val audioFile = File(downloadsDir, "$baseName$fileSuffix.wav")
+            val fileName = "$baseName$fileSuffix.wav"
             
-            tts.synthesizeToFile(chunks[i], null, audioFile, utteranceId)
+            // Save to app's safe directory first to avoid Android 11+ permission restrictions
+            val tempFile = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName)
+            pendingFiles[utteranceId] = tempFile
+            
+            tts.synthesizeToFile(chunks[i], null, tempFile, utteranceId)
         }
     }
 
