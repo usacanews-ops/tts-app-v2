@@ -3,7 +3,10 @@ package com.app.empty_activity_kotlin
 import android.os.Bundle
 import android.os.Environment
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -14,6 +17,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var tts: TextToSpeech
     private lateinit var editText: EditText
+    private lateinit var tvCharCount: TextView
+    private lateinit var progressBar: ProgressBar
     private lateinit var btnGenerate: Button
     private lateinit var btnDownload: Button
     private lateinit var seekPitch: SeekBar
@@ -29,6 +34,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         setContentView(R.layout.activity_main)
 
         editText = findViewById(R.id.editText)
+        tvCharCount = findViewById(R.id.tvCharCount)
+        progressBar = findViewById(R.id.progressBar)
         btnGenerate = findViewById(R.id.btnGenerate)
         btnDownload = findViewById(R.id.btnDownload)
         seekPitch = findViewById(R.id.seekPitch)
@@ -39,13 +46,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         btnGenerate.isEnabled = false
         btnDownload.isEnabled = false
 
+        // Live Character Counter
+        editText.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                tvCharCount.text = "${s?.length ?: 0} characters"
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
         tts = TextToSpeech(this, this)
 
         btnGenerate.setOnClickListener {
             val text = editText.text.toString()
             if (text.isNotEmpty()) {
                 applyTtsSettings()
-                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "")
+                speakInChunks(text)
             } else {
                 Toast.makeText(this, "Please enter some text", Toast.LENGTH_SHORT).show()
             }
@@ -55,16 +71,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val text = editText.text.toString()
             if (text.isNotEmpty()) {
                 applyTtsSettings()
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val fileName = "TTS_Audio_${System.currentTimeMillis()}.wav"
-                val audioFile = File(downloadsDir, fileName)
-
-                val result = tts.synthesizeToFile(text, null, audioFile, "tts_download")
-                if (result == TextToSpeech.SUCCESS) {
-                    Toast.makeText(this, "Saved to Downloads: $fileName", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(this, "Failed to save audio", Toast.LENGTH_SHORT).show()
-                }
+                downloadInChunks(text)
             } else {
                 Toast.makeText(this, "Please enter some text", Toast.LENGTH_SHORT).show()
             }
@@ -74,10 +81,69 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             setupLanguageSpinner()
+            setupProgressListener()
             btnGenerate.isEnabled = true
             btnDownload.isEnabled = true
         } else {
             Toast.makeText(this, "TTS Initialization failed", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun setupProgressListener() {
+        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {
+                runOnUiThread { progressBar.visibility = View.VISIBLE }
+            }
+
+            override fun onDone(utteranceId: String?) {
+                // Only hide loader and show success message when the FINAL chunk finishes
+                if (utteranceId != null && utteranceId.contains("_FINAL")) {
+                    runOnUiThread {
+                        progressBar.visibility = View.GONE
+                        if (utteranceId.startsWith("DOWNLOAD")) {
+                            Toast.makeText(this@MainActivity, "Audio saved to Downloads!", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+
+            override fun onError(utteranceId: String?) {
+                runOnUiThread {
+                    progressBar.visibility = View.GONE
+                    Toast.makeText(this@MainActivity, "Error processing audio", Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
+    }
+
+    private fun speakInChunks(text: String) {
+        // Safe limit below the 4000 max
+        val maxLength = TextToSpeech.getMaxSpeechInputLength() - 100 
+        val chunks = text.chunked(maxLength)
+        
+        for (i in chunks.indices) {
+            val utteranceId = if (i == chunks.size - 1) "SPEAK_FINAL" else "SPEAK_$i"
+            val queueMode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+            tts.speak(chunks[i], queueMode, null, utteranceId)
+        }
+    }
+
+    private fun downloadInChunks(text: String) {
+        val maxLength = TextToSpeech.getMaxSpeechInputLength() - 100
+        val chunks = text.chunked(maxLength)
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val baseName = "TTS_Audio_${System.currentTimeMillis()}"
+
+        if (chunks.size > 1) {
+            Toast.makeText(this, "Long text: Saving as ${chunks.size} separate files", Toast.LENGTH_LONG).show()
+        }
+
+        for (i in chunks.indices) {
+            val utteranceId = if (i == chunks.size - 1) "DOWNLOAD_FINAL" else "DOWNLOAD_$i"
+            val fileSuffix = if (chunks.size > 1) "_Part${i + 1}" else ""
+            val audioFile = File(downloadsDir, "$baseName$fileSuffix.wav")
+            
+            tts.synthesizeToFile(chunks[i], null, audioFile, utteranceId)
         }
     }
 
@@ -99,43 +165,32 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
                 override fun onNothingSelected(parent: AdapterView<*>?) {}
             }
-        } catch (e: Exception) {
-            Toast.makeText(this, "Could not load languages", Toast.LENGTH_SHORT).show()
-        }
+        } catch (e: Exception) {}
     }
 
     private fun updateVoicesForLanguage(locale: Locale) {
         try {
             val allVoices = tts.voices ?: emptySet()
             availableVoices.clear()
-            
-            // 1. Filter voices for the chosen language
             availableVoices.addAll(allVoices.filter { it.locale.language == locale.language })
-            
-            // 2. Sort so Local offline voices appear at the top, Network voices at the bottom
             availableVoices.sortBy { it.isNetworkConnectionRequired }
 
             val voiceNames = if (availableVoices.isEmpty()) {
                 listOf("Default Speaker")
             } else {
                 availableVoices.mapIndexed { index, voice ->
-                    
                     val nameLower = voice.name.toLowerCase(Locale.US)
                     val features = voice.features ?: emptySet()
                     
-                    // Dig through the hidden Google TTS parameters to find gender tags
-                   val isFemale = nameLower.contains("female") || features.any { it.toLowerCase(Locale.US).contains("female") }
+                    val isFemale = nameLower.contains("female") || features.any { it.toLowerCase(Locale.US).contains("female") }
                     val isMale = !isFemale && (nameLower.contains("male") || features.any { it.toLowerCase(Locale.US).contains("male") })
                     
                     val gender = when {
                         isFemale -> "(F)"
                         isMale -> "(M)"
-                        else -> "" // Leave blank if Google doesn't specify gender for this voice
+                        else -> ""
                     }
-                    
                     val type = if (voice.isNetworkConnectionRequired) "Network" else "Local"
-                    
-                    // Creates a clean name like: "Speaker 1 (M) - Local"
                     "Speaker ${index + 1} $gender - $type".replace("  ", " ").trim()
                 }
             }
@@ -151,9 +206,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
                 override fun onNothingSelected(parent: AdapterView<*>?) {}
             }
-        } catch (e: Exception) {
-            // Failsafe for older devices
-        }
+        } catch (e: Exception) {}
     }
 
     private fun applyTtsSettings() {
